@@ -1,0 +1,67 @@
+# ── CMake build artifacts ──────────────────────────────────────────
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.slnx
+*.ninja
+*.tlog
+*.recipe
+*.iobj
+*.pdb
+*.ilk
+*.exp
+
+# ── Compiled binaries ─────────────────────────────────────────────
+*.exe
+*.dll
+*.obj
+*.o
+*.a
+*.lib
+*.so
+*.dylib
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+*.egg
+
+# ── Media files (test data, keep local only) ──────────────────────
+*.mp4
+*.mp3
+*.wav
+*.avi
+*.mkv
+
+# ── Archives ──────────────────────────────────────────────────────
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ── IDE / editor ──────────────────────────────────────────────────
+.vscode/*
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
+*.swp
+*.swo
+*~
+
+# ── OS files ──────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Draft / scratch folders ───────────────────────────────────────
+草稿/
+draft/
+tmp/
