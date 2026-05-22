@@ -1,2 +1,5 @@
 opencv-python>=4.8
 numpy>=1.24
+
+# Optional (audio playback in player)
+# pygame>=2.5

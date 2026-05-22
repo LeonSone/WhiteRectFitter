@@ -65,3 +65,6 @@ Desktop.ini
 草稿/
 draft/
 tmp/
+
+# ── Pre-computed data (keep local only) ──────────────────────────
+data/*.bin
