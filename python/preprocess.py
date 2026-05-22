@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-preprocess.py  —  WhiteRectFitter v3 预处理器
+preprocess.py  —  WhiteRectFitter 预处理器
 仿照 bad_apple_virus/bad apple.py
 
 将视频离线分解为 boxes.bin，播放时零计算。
@@ -189,7 +189,7 @@ def preprocess(input_path: str, output_path: str,
 
 def main():
     ap = argparse.ArgumentParser(
-        description='WhiteRectFitter v3 预处理器：视频 → boxes.bin',
+        description='WhiteRectFitter 预处理器：视频 → boxes.bin',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -204,7 +204,7 @@ def main():
                     help='白色亮度阈值 0-255（默认 200）')
     args = ap.parse_args()
 
-    print("WhiteRectFitter v3 预处理器")
+    print("WhiteRectFitter 预处理器")
     print("=" * 48)
     preprocess(args.input, args.out, args.width, args.max_rects, args.thresh)
 

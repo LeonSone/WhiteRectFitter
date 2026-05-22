@@ -1,4 +1,4 @@
-"""WhiteRectFitter v3 — boxes.bin 二进制格式读写"""
+"""WhiteRectFitter — boxes.bin 二进制格式读写"""
 
 from __future__ import annotations
 

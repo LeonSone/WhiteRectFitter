@@ -5,8 +5,9 @@
 import sys
 from pathlib import Path
 
-# 确保 python/ 目录在 import 路径中
-sys.path.insert(0, str(Path(__file__).parent / 'python'))
+# 确保 python/ 目录在 import 路径中 (仅源码运行时需要)
+if not getattr(sys, 'frozen', False):
+    sys.path.insert(0, str(Path(__file__).parent / 'python'))
 
 from preprocess import main
 

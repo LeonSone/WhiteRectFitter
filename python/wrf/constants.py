@@ -1,4 +1,4 @@
-"""WhiteRectFitter v3 — 二进制格式常量（与 main.cpp 共享）"""
+"""WhiteRectFitter — 二进制格式常量（与 main.cpp 共享）"""
 
 import struct
 

@@ -1,11 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
-project(WhiteRectFitter VERSION 3.0 LANGUAGES CXX)
+project(WhiteRectFitter LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── 可执行文件 ────────────────────────────────────────────────────
-add_executable(wrf WIN32 src/main.cpp)
+option(CONSOLE_BUILD "Build as console app for debugging" OFF)
+if(CONSOLE_BUILD)
+    add_executable(wrf src/main.cpp)
+    target_compile_definitions(wrf PRIVATE CONSOLE_BUILD)
+else()
+    add_executable(wrf WIN32 src/main.cpp)
+endif()
 
 # ── 编译选项 ─────────────────────────────────────────────────────
 target_compile_definitions(wrf PRIVATE

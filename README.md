@@ -1,112 +1,80 @@
-# WhiteRectFitter v3
+# WhiteRectFitter
 
-> 仿照 [bad_apple_virus](https://github.com/mon/bad_apple_virus) 的架构重写
-> 将黑白视频的白色区域实时映射为 Windows 桌面无边框白色窗口
+将黑白视频的白色区域实时映射为 Windows 桌面上的无边框白色窗口。
+
+灵感来自 [bad_apple_virus](https://github.com/mon/bad_apple_virus)（Rust），本项目提供 C++ 和 Python 两套实现。
 
 ---
 
-## 架构对照
+## 快速开始
 
-| bad_apple_virus (Rust) | WhiteRectFitter v3 |
-| --- | --- |
-| `bad apple.py`（Python 预处理） | `python/preprocess.py`（Python 预处理） |
-| `src/main.rs`（Rust 播放器） | `src/main.cpp`（C++ 播放器） |
-| *(仅 Rust)* | `python/player.py`（Python 播放器） |
-| `assets/boxes.bin`（预计算数据） | `data/*.bin`（预计算数据） |
+```bash
+# 1. 安装依赖
+pip install -r requirements.txt
 
-**关键设计原则：分析与播放完全解耦。**
-`preprocess.py` / `wrf.exe --preprocess` 离线运行一次；
-`player.py` / `wrf.exe --play` 播放时零分析，直接读内存。
+# 2. 预处理（离线，运行一次）
+python preprocess.py bad_apple.mp4
+
+# 3. 播放
+python player.py              # Python GUI
+wrf.exe --play boxes.bin      # C++ 命令行
+```
 
 ---
 
 ## 项目结构
 
 ```text
-WhiteRectFitter v3/
-├── preprocess.py           ← thin wrapper，调用 python/preprocess.py
-├── player.py               ← thin wrapper，调用 python/player.py
+WhiteRectFitter/
+├── preprocess.py           ← 入口：预处理（调用 python/preprocess.py）
+├── player.py               ← 入口：播放器（调用 python/player.py）
+├── launcher.py             ← 入口：GUI 启动器（配置参数启动 wrf.exe）
 │
-├── python/                 Python 代码
-│   ├── preprocess.py       离线预处理器（视频 → boxes.bin）
-│   ├── player.py           实时播放器（GUI + 后台线程）
+├── python/
+│   ├── preprocess.py       预处理器（视频 → boxes.bin）
+│   ├── player.py           播放器（Tkinter + Win32 DeferWindowPos）
 │   └── wrf/                共享库
 │       ├── constants.py    二进制格式常量
-│       ├── boxes.py        BoxesFile 读写
-│       └── win32.py        Win32 DeferWindowPos 绑定 + 窗口池
+│       ├── boxes.py        boxes.bin 读写
+│       └── win32.py        Win32 窗口池绑定
 │
 ├── src/
-│   └── main.cpp            C++ 预处理器 + 播放器（单文件）
-│
-├── data/
-│   └── my_boxes256.bin     预计算的矩形数据（gitignored）
+│   └── main.cpp            C++ 实现（预处理 + 播放，单文件）
 │
 ├── CMakeLists.txt          C++ 构建配置
 ├── requirements.txt        Python 依赖
-└── README.md
+└── run.bat                 便捷启动脚本
 ```
 
-### Python 包说明
-
-| 模块 | 职责 |
-| --- | --- |
-| `wrf/constants` | `MAGIC`、`HEADER_FMT`、`COORD_FMT` 等二进制格式常量 |
-| `wrf/boxes` | `BoxesFile` 类（读取 boxes.bin）、`write_header`/`write_frame`（写入） |
-| `wrf/win32` | Win32 ctypes 绑定、`WinState` 脏标记、`WindowPool` 窗口池 |
-| `preprocess` | 贪心最大矩形算法 + CLI 入口 |
-| `player` | `Player` 播放控制器 + `App` Tkinter GUI |
+**设计原则：预处理与播放完全解耦。** 预处理离线运行一次生成 `boxes.bin`，播放时直接读取，零计算开销。
 
 ---
 
-## 卡顿根因分析（v2.2 → v3 改进）
+## 使用说明
 
-| 问题 | v2.2 | v3 |
-| --- | --- | --- |
-| 算法位置 | **每帧实时**运行 `decompose_greedy` | **离线预处理**，播放时只做内存索引 |
-| 窗口创建 | 每帧 `apply()` 内反复 `root.update()` | 加载文件后**一次性**调用 |
-| 脏标记 | 无，所有窗口全量提交 | **WinState** 位置/尺寸/可见性脏标记 |
-| 线程切换 | `root.after(0, ...)` **每帧**调度 | `_w32_batch()` **直接调用 Win32**，每 30 帧才 `after()` 一次 |
-| HWND | `winfo_id()`（子组件句柄） | `wm_frame()`（顶层 OS 句柄） |
-| 显隐 flag | 统一加 `SWP_HIDEWINDOW`（残影） | 显隐时**去掉** `SWP_NOREDRAW` |
-
----
-
-## 使用流程
-
-### 1. 安装依赖
+### 预处理
 
 ```bash
-pip install -r requirements.txt
+# Python 版
+python preprocess.py input.mp4 --out boxes.bin --width 256 --max-rects 2048 --thresh 200
 
-# 可选音频支持
-pip install pygame
+# C++ 版（需编译 + OpenCV）
+wrf.exe --preprocess input.mp4 --out boxes.bin --width 256
 ```
 
-### 2. 预处理（一次性，离线）
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--width` | 256 | 分析宽度，越大越精确但越慢 |
+| `--max-rects` | 2048 | 每帧最大矩形数 |
+| `--thresh` | 200 | 白色亮度阈值（0-255） |
+
+### 播放
 
 ```bash
-# Python 版本
-python preprocess.py bad_apple.mp4
-
-# 自定义参数
-python preprocess.py input.mp4 \
-    --out boxes.bin \
-    --width 256 \          # 分析宽度（越大越精确但越慢）
-    --max-rects 2048 \     # 每帧最大矩形数
-    --thresh 200           # 白色阈值（0-255）
-
-# C++ 版本（需要编译 + OpenCV）
-wrf.exe --preprocess bad_apple.mp4 --out boxes.bin
-```
-
-### 3. 播放
-
-```bash
-# Python 播放器（GUI）
+# Python 播放器（GUI，可选 pygame 音频）
 python player.py
-# → 在界面中选择 boxes.bin 和（可选）音频文件
 
-# C++ 播放器（命令行）
+# C++ 播放器
 wrf.exe --play boxes.bin
 wrf.exe --play boxes.bin --audio "bad apple.mp3"
 wrf.exe --play boxes.bin --sx 0 --sy 0 --sw 1920 --sh 1080
@@ -116,77 +84,69 @@ wrf.exe --play boxes.bin --sx 0 --sy 0 --sw 1920 --sh 1080
 
 ## 编译 C++ 版本
 
-### 前提条件
-
-- Visual Studio 2022 或 MSVC 工具链
-- CMake 3.20+
-- （可选）OpenCV 4.x（用于 `--preprocess` 模式）
-
-### 使用 vcpkg（推荐）
+**依赖：** Visual Studio 2022 / MSVC 工具链、CMake 3.20+、（可选）OpenCV 4.x
 
 ```bash
+# 使用 vcpkg（推荐）
 vcpkg install opencv4:x64-windows
 cmake -B build
 cmake --build build --config Release
-```
 
-### 手动指定 OpenCV
-
-```bash
+# 手动指定 OpenCV
 cmake -B build -DOpenCV_DIR="D:/OpenCV/Build"
 cmake --build build --config Release
-```
 
-### 不使用 OpenCV（仅播放器）
-
-```bash
+# 不使用 OpenCV（仅播放器）
 cmake -B build -DWITH_OPENCV=OFF
 cmake --build build --config Release
 ```
 
 ---
 
-## boxes.bin 二进制格式
+## 技术细节
+
+### 算法：贪心最大矩形
+
+1. 对白色区域维护列高直方图 `hist[x]`
+2. 单调栈 O(W) 求直方图中最大矩形
+3. 记录矩形，将对应区域涂黑
+4. 重复直到达到 `max_rects` 或面积过小
+
+每个矩形内所有像素均为白色，用最少矩形覆盖最大白色面积。
+
+### boxes.bin 二进制格式
 
 ```
 Header (16 bytes, little-endian):
   char[4]    magic        = "WRF2"
-  uint16_t   base_w       分析宽度（坐标空间上界）
+  uint16_t   base_w       分析宽度
   uint16_t   base_h       分析高度
   float32    fps
   uint32_t   total_frames
 
 Body（逐帧，变长）:
-  [x:u16  y:u16  w:u16  h:u16] × N    ← N 个矩形（N ≥ 0）
-  [0:u16  0:u16  0:u16  0:u16]         ← 帧分隔符（w=h=0）
+  [x:u16  y:u16  w:u16  h:u16] × N    ← N 个矩形
+  [0:u16  0:u16  0:u16  0:u16]         ← 帧分隔符
 ```
 
-坐标系为 `[0, base_w) × [0, base_h)`，播放时按比例缩放至屏幕。
+坐标空间为 `[0, base_w) × [0, base_h)`，播放时按比例缩放至屏幕。
 
----
+### 性能优化
 
-## 贪心最大矩形算法
+- 预处理离线完成，播放时零分析开销
+- 窗口一次性预分配，非逐帧创建
+- WinState 脏标记系统，跳过未变化的窗口
+- 直接调用 Win32 `DeferWindowPos` 批量提交，绕过 Tkinter 事件循环
+- 使用 `wm_frame()` 获取真实 OS 窗口句柄
 
-与 bad_apple_virus 的 Python 脚本同类算法：
-
-1. 对工作掩码（白=1）维护列高直方图 `hist[x]`
-2. 单调栈 O(W) 求当前行直方图中最大矩形
-3. 记录该矩形，将对应区域置 0（涂黑）
-4. 重复至 `max_rects` 次或面积 < 4
-
-**保证**：每个矩形内所有像素均为白色。
-**效果**：用最少的矩形覆盖最大的白色面积。
-
----
-
-## 性能参考
+### 性能参考
 
 | 指标 | 典型值 |
-| --- | --- |
-| 预处理速度（Python，64×48） | ~2-5 帧/秒 |
-| 预处理速度（C++，64×48） | ~200-500 帧/秒 |
-| 播放延迟（Python player） | < 5ms/帧（无分析） |
-| 播放延迟（C++ player） | < 1ms/帧 |
+|------|--------|
+| 预处理（Python，64×48） | ~2-5 帧/秒 |
+| 预处理（C++，64×48） | ~200-500 帧/秒 |
+| 播放延迟（Python） | < 5ms/帧 |
+| 播放延迟（C++） | < 1ms/帧 |
 | DeferWindowPos 批量提交 150 窗口 | ~2-5ms |
 
 ---

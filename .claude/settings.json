@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c \"cd /d D:\\\\VSCODE\\\\PYTHON\\\\WhiteRectFitter && set PATH=%PATH%;D:\\\\OpenCV\\\\Build\\\\bin\\\\Release && build\\\\Release\\\\wrf.exe --play data\\\\boxes256.bin\")",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(cmd.exe /c \"cd /d D:\\\\VSCODE\\\\PYTHON\\\\WhiteRectFitter && build\\\\Release\\\\wrf.exe\")",
+      "Bash(powershell.exe -NoProfile -Command \"& 'D:\\\\\\\\VSCODE\\\\\\\\PYTHON\\\\\\\\WhiteRectFitter\\\\\\\\build\\\\\\\\Release\\\\\\\\wrf.exe' 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command '$env:PATH += '\\\\'';D:\\\\OpenCV\\\\Build\\\\bin\\\\Release'\\\\''; & '\\\\''D:\\\\VSCODE\\\\PYTHON\\\\WhiteRectFitter\\\\build\\\\Release\\\\wrf.exe'\\\\'' --play '\\\\''D:\\\\VSCODE\\\\PYTHON\\\\WhiteRectFitter\\\\data\\\\boxes256.bin'\\\\'' 2>&1')",
+      "Bash(python -c \"import launcher; print\\('OK: syntax valid'\\)\")",
+      "Bash(python -c \"import launcher; print\\('OK'\\)\")",
+      "Bash(pip install *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('launcher.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
+    ]
+  }
+}

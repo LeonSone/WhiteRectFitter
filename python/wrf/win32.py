@@ -1,4 +1,4 @@
-"""WhiteRectFitter v3 — Win32 窗口池（仿 WindowCollection in main.rs）"""
+"""WhiteRectFitter — Win32 窗口池（仿 WindowCollection in main.rs）"""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-player.py  —  WhiteRectFitter v3 播放器（Python）
+player.py  —  WhiteRectFitter 播放器（Python）
 仿照 bad_apple_virus/src/main.rs
 
 读取 preprocess.py 生成的 boxes.bin，实时驱动 Win32 窗口。
@@ -219,7 +219,7 @@ GOLD  = '#d29922'
 class App:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("WhiteRectFitter v3 — 播放器")
+        self.root.title("WhiteRectFitter — 播放器")
         self.root.geometry("480x620")
         self.root.configure(bg=BG)
 
@@ -243,7 +243,7 @@ class App:
         top = tk.Frame(self.root, bg=PANEL, height=44)
         top.pack(fill=tk.X)
         top.pack_propagate(False)
-        tk.Label(top, text="◈  WhiteRectFitter v3  —  Player",
+        tk.Label(top, text="◈  WhiteRectFitter  —  Player",
                  bg=PANEL, fg=TEXT,
                  font=('Microsoft YaHei UI', 11, 'bold')).pack(
             side=tk.LEFT, padx=16, pady=10)
