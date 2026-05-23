@@ -1,0 +1,8 @@
+#include "resource.h"
+
+// Embedded data files
+IDR_BOXES_128  RCDATA  "D:/OneDrive/WhiteRectFitter/data/boxes128.bin"
+IDR_BOXES_256  RCDATA  "D:/OneDrive/WhiteRectFitter/data/boxes256.bin"
+IDR_BOXES_512  RCDATA  "D:/OneDrive/WhiteRectFitter/data/boxes512.bin"
+IDR_AUDIO_MP3  RCDATA  "D:/OneDrive/WhiteRectFitter/bad_apple.mp3"
+IDR_VIDEO_MP4  RCDATA  "D:/OneDrive/WhiteRectFitter/bad_apple.mp4"
