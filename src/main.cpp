@@ -35,6 +35,8 @@
 #include <shellapi.h>     
 #include <mmsystem.h>     // MCI audio
 #include <commdlg.h>      // GetOpenFileNameW / GetSaveFileNameW
+#include <commctrl.h>     // SetWindowSubclass
+#pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "winmm.lib")
 
 #include <cassert>
@@ -49,6 +51,7 @@
 #include <vector>
 #include <fcntl.h>
 #include <io.h>
+#include "resource.h"
 // OpenCV — 仅 --preprocess 模式需要
 #ifdef WITH_OPENCV
 #  include <opencv2/opencv.hpp>
@@ -122,6 +125,120 @@ struct BoxData {
         return true;
     }
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// § 1.5  嵌入资源提取
+// ═══════════════════════════════════════════════════════════════════
+
+static std::wstring g_res_dir;   // 资源释放目录
+
+static std::wstring get_exe_dir()
+{
+    wchar_t buf[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    // 去掉文件名，保留目录
+    wchar_t* slash = wcsrchr(buf, L'\\');
+    if (slash) *(slash + 1) = L'\0';
+    return buf;
+}
+
+static bool extract_resource_to_file(HINSTANCE inst, int res_id,
+                                      const wchar_t* res_type,
+                                      const wchar_t* out_path)
+{
+    HRSRC hRes = FindResourceW(inst, MAKEINTRESOURCEW(res_id), res_type);
+    if (!hRes) return false;
+
+    HGLOBAL hMem = LoadResource(inst, hRes);
+    if (!hMem) return false;
+
+    DWORD size = SizeofResource(inst, hRes);
+    void* data = LockResource(hMem);
+    if (!data) return false;
+
+    FILE* f = _wfopen(out_path, L"wb");
+    if (!f) return false;
+    fwrite(data, 1, size, f);
+    fclose(f);
+    return true;
+}
+
+static bool extract_embedded_data(HINSTANCE inst)
+{
+    g_res_dir = get_exe_dir();
+    if (g_res_dir.empty()) return false;
+
+    // 提取 boxes128.bin
+    std::wstring p128 = g_res_dir + L"boxes128.bin";
+    if (!extract_resource_to_file(inst, IDR_BOXES_128,
+                                   RT_RCDATA,
+                                   p128.c_str())) {
+        fprintf(stderr, "[错误] 无法提取嵌入的 boxes128.bin\n");
+        return false;
+    }
+
+    // 提取 boxes256.bin
+    std::wstring p256 = g_res_dir + L"boxes256.bin";
+    if (!extract_resource_to_file(inst, IDR_BOXES_256,
+                                   RT_RCDATA,
+                                   p256.c_str())) {
+        fprintf(stderr, "[错误] 无法提取嵌入的 boxes256.bin\n");
+        return false;
+    }
+
+    // 提取 bad_apple.mp3
+    std::wstring audio = g_res_dir + L"bad_apple.mp3";
+    if (!extract_resource_to_file(inst, IDR_AUDIO_MP3,
+                                   RT_RCDATA,
+                                   audio.c_str())) {
+        fprintf(stderr, "[错误] 无法提取嵌入的 bad_apple.mp3\n");
+        return false;
+    }
+
+    // 提取 bad_apple.mp4
+    std::wstring video = g_res_dir + L"bad_apple.mp4";
+    if (!extract_resource_to_file(inst, IDR_VIDEO_MP4,
+                                   RT_RCDATA,
+                                   video.c_str())) {
+        fprintf(stderr, "[错误] 无法提取嵌入的 bad_apple.mp4\n");
+        return false;
+    }
+
+    printf("  嵌入资源已解压到: %ls\n", g_res_dir.c_str());
+    return true;
+}
+
+// boxes512 按需解压
+static bool extract_boxes512(HINSTANCE inst)
+{
+    if (g_res_dir.empty()) return false;
+    std::wstring p512 = g_res_dir + L"boxes512.bin";
+    if (GetFileAttributesW(p512.c_str()) != INVALID_FILE_ATTRIBUTES)
+        return true;  // 已存在
+    return extract_resource_to_file(inst, IDR_BOXES_512,
+                                    RT_RCDATA,
+                                    p512.c_str());
+}
+
+static void cleanup_res_dir()
+{
+    if (g_res_dir.empty()) return;
+
+    const wchar_t* files[] = {
+        L"boxes128.bin", L"boxes256.bin", L"boxes512.bin",
+        L"bad_apple.mp3", L"bad_apple.mp4",
+    };
+    for (auto& f : files) {
+        std::wstring path = g_res_dir + f;
+        DeleteFileW(path.c_str());
+    }
+}
+
+static bool has_embedded_resources(HINSTANCE inst)
+{
+    return FindResourceW(inst, MAKEINTRESOURCEW(IDR_BOXES_256),
+                         RT_RCDATA) != nullptr;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // § 2  DeferredWindow（仿 main.rs DeferredWindow）
@@ -688,6 +805,7 @@ enum {
     IDC_EDIT_INPUT,  IDC_BTN_INPUT,
     IDC_EDIT_OUTPUT, IDC_BTN_OUTPUT,
     IDC_EDIT_WIDTH, IDC_EDIT_MAXRECTS, IDC_EDIT_THRESH,
+    IDC_RADIO_LOW, IDC_RADIO_MED, IDC_RADIO_HIGH, IDC_RADIO_CUSTOM,
     IDC_BTN_LAUNCH,
 };
 
@@ -708,6 +826,11 @@ static HWND g_hwndEditOutput = nullptr;
 static HWND g_hwndEditWidth  = nullptr;
 static HWND g_hwndEditMaxR   = nullptr;
 static HWND g_hwndEditThresh = nullptr;
+static HWND g_hwndRadioLow   = nullptr;
+static HWND g_hwndRadioMed   = nullptr;
+static HWND g_hwndRadioHigh  = nullptr;
+static HWND g_hwndRadioCustom = nullptr;
+static HWND g_hwndModeLabel   = nullptr;
 
 // GUI 结果
 enum GuiMode { GUI_NONE, GUI_PLAY, GUI_PREPROCESS };
@@ -726,12 +849,13 @@ static bool browse_file(HWND owner, const wchar_t* filter,
                         wchar_t* out, size_t out_len, bool save = false)
 {
     OPENFILENAMEW ofn = {};
-    ofn.lStructSize  = sizeof(ofn);
-    ofn.hwndOwner    = owner;
-    ofn.lpstrFilter  = filter;
-    ofn.lpstrFile    = out;
-    ofn.nMaxFile     = (DWORD)out_len;
-    ofn.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lStructSize   = sizeof(ofn);
+    ofn.hwndOwner     = owner;
+    ofn.lpstrFilter   = filter;
+    ofn.lpstrFile     = out;
+    ofn.nMaxFile      = (DWORD)out_len;
+    ofn.lpstrInitialDir = g_res_dir.empty() ? nullptr : g_res_dir.c_str();
+    ofn.Flags         = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
     if (save) {
         ofn.Flags |= OFN_OVERWRITEPROMPT;
         return GetSaveFileNameW(&ofn) != 0;
@@ -774,7 +898,9 @@ static void apply_font(HWND hwnd) {
 static void switch_mode(HWND hwnd, bool play_mode) {
     ShowWindow(g_hwndPlayGroup, play_mode ? SW_SHOW : SW_HIDE);
     ShowWindow(g_hwndPreGroup,  play_mode ? SW_HIDE : SW_SHOW);
-    int h = play_mode ? 440 : 400;
+    SetWindowTextW(g_hwndModeLabel,
+                   play_mode ? L"── 播放模式 ──" : L"── 预处理模式 ──");
+    int h = play_mode ? 520 : 500;
     RECT rc; GetWindowRect(hwnd, &rc);
     SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, h,
                  SWP_NOMOVE | SWP_NOZORDER);
@@ -811,20 +937,34 @@ static int create_file_row(HWND parent, HINSTANCE inst, int y,
 // 创建一组 标签 + 输入框（短），返回下一个 x 偏移
 static int create_short_field(HWND parent, HINSTANCE inst, int x, int y,
                               const wchar_t* label, int edit_id,
-                              HWND& out_edit, const wchar_t* def = nullptr)
+                              HWND& out_edit, const wchar_t* def = nullptr,
+                              int label_w = 50, int edit_w = 60, int step = 120)
 {
     HWND hLabel = CreateWindowExW(0, L"STATIC", label,
         WS_CHILD | WS_VISIBLE,
-        x, y + 3, 50, 20, parent, nullptr, inst, nullptr);
+        x, y + 3, label_w, 20, parent, nullptr, inst, nullptr);
     apply_font(hLabel);
 
     out_edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", def ? def : L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_NUMBER,
-        x + 52, y, 60, 24,
+        x + label_w + 2, y, edit_w, 24,
         parent, (HMENU)(UINT_PTR)edit_id, inst, nullptr);
     apply_font(out_edit);
 
-    return x + 120;
+    return x + step;
+}
+
+// 将子控件的 WM_COMMAND/WM_NOTIFY 转发给主窗口
+static HWND g_hwndMain = nullptr;
+static bool show_disclaimer(const wchar_t* title);
+static LRESULT CALLBACK group_fwd_proc(HWND hwnd, UINT msg,
+                                        WPARAM wp, LPARAM lp,
+                                        UINT_PTR, DWORD_PTR)
+{
+    if (msg == WM_COMMAND && g_hwndMain) {
+        return SendMessageW(g_hwndMain, WM_COMMAND, wp, lp);
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
 }
 
 static LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg,
@@ -834,6 +974,7 @@ static LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg,
     case WM_CREATE: {
         auto* cs = (CREATESTRUCT*)lp;
         HINSTANCE inst = cs->hInstance;
+        g_hwndMain = hwnd;
         int y = 12;
 
         // ── 模式选择 ──
@@ -854,70 +995,139 @@ static LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg,
         apply_font(g_hwndRadioPre);
 #ifndef WITH_OPENCV
         EnableWindow(g_hwndRadioPre, FALSE);
+        {
+            HWND hNote = CreateWindowExW(0, L"STATIC",
+                L"(需要编译时启用 OpenCV 4.x)",
+                WS_CHILD | WS_VISIBLE | SS_LEFT,
+                150, y + 22, 300, 18, hwnd, nullptr, inst, nullptr);
+            apply_font(hNote);
+        }
 #endif
 
         y += 32;
 
+        // ── 模式标题 ──
+        g_hwndModeLabel = CreateWindowExW(0, L"STATIC", L"── 播放模式 ──",
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            0, y, 480, 20, hwnd, nullptr, inst, nullptr);
+        apply_font(g_hwndModeLabel);
+
+        y += 22;
+
         // ── Play 组 ──
         g_hwndPlayGroup = CreateWindowExW(0, L"STATIC", nullptr,
             WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-            0, y, 480, 300, hwnd, nullptr, inst, nullptr);
+            0, y, 480, 380, hwnd, nullptr, inst, nullptr);
+        SetWindowSubclass(g_hwndPlayGroup, group_fwd_proc, 0, 0);
 
         int gy = 8;
+        // 预填充路径（嵌入资源模式）
+        const wchar_t* def_boxes = nullptr;
+        const wchar_t* def_audio = nullptr;
+        std::wstring boxes_buf, audio_buf;
+        if (!g_res_dir.empty()) {
+            boxes_buf = g_res_dir + L"boxes512.bin";
+            def_boxes = boxes_buf.c_str();
+            audio_buf = g_res_dir + L"bad_apple.mp3";
+            def_audio = audio_buf.c_str();
+        }
         gy = create_file_row(g_hwndPlayGroup, inst, gy, L"Boxes 文件:", 70,
-                             IDC_EDIT_BOXES, IDC_BTN_BOXES, g_hwndEditBoxes);
+                             IDC_EDIT_BOXES, IDC_BTN_BOXES, g_hwndEditBoxes, def_boxes);
         gy = create_file_row(g_hwndPlayGroup, inst, gy, L"音频文件:", 70,
-                             IDC_EDIT_AUDIO, IDC_BTN_AUDIO, g_hwndEditAudio);
+                             IDC_EDIT_AUDIO, IDC_BTN_AUDIO, g_hwndEditAudio, def_audio);
 
         gy += 8;
         // 屏幕区域
         HWND hRegion = CreateWindowExW(0, L"STATIC", L"屏幕区域:",
-            WS_CHILD | WS_VISIBLE, 10, gy + 3, 70, 20,
+            WS_CHILD | WS_VISIBLE, 10, gy + 3, 64, 20,
             g_hwndPlayGroup, nullptr, inst, nullptr);
         apply_font(hRegion);
 
-        RECT wa;
-        SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-        wchar_t buf[32];
-        int fx = 84;
+        int fx = 76;
         fx = create_short_field(g_hwndPlayGroup, inst, fx, gy, L"X:",
-            IDC_EDIT_SX, g_hwndEditSX, L"0");
+            IDC_EDIT_SX, g_hwndEditSX, L"0", 40, 48, 100);
         fx = create_short_field(g_hwndPlayGroup, inst, fx, gy, L"Y:",
-            IDC_EDIT_SY, g_hwndEditSY, L"0");
-        swprintf_s(buf, L"%d", wa.right - wa.left);
+            IDC_EDIT_SY, g_hwndEditSY, L"0", 40, 48, 100);
         fx = create_short_field(g_hwndPlayGroup, inst, fx, gy, L"宽:",
-            IDC_EDIT_SW, g_hwndEditSW, buf);
-        swprintf_s(buf, L"%d", wa.bottom - wa.top);
+            IDC_EDIT_SW, g_hwndEditSW, L"1440", 40, 48, 100);
         fx = create_short_field(g_hwndPlayGroup, inst, fx, gy, L"高:",
-            IDC_EDIT_SH, g_hwndEditSH, buf);
+            IDC_EDIT_SH, g_hwndEditSH, L"1080", 40, 48, 100);
 
         gy += 32;
         HWND hFull = CreateWindowExW(0, L"BUTTON", L"全屏",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-            84, gy, 60, 24, g_hwndPlayGroup,
+            76, gy, 60, 24, g_hwndPlayGroup,
             (HMENU)(UINT_PTR)IDC_BTN_FULLSCREEN, inst, nullptr);
         apply_font(hFull);
+
+        gy += 36;
+        // ── 画质选择 ──
+        HWND hQualLabel = CreateWindowExW(0, L"STATIC", L"画质:",
+            WS_CHILD | WS_VISIBLE, 10, gy + 3, 70, 20,
+            g_hwndPlayGroup, nullptr, inst, nullptr);
+        apply_font(hQualLabel);
+
+        g_hwndRadioLow = CreateWindowExW(0, L"BUTTON", L"低 (128px)",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
+            84, gy, 100, 22, g_hwndPlayGroup, (HMENU)(UINT_PTR)IDC_RADIO_LOW, inst, nullptr);
+        apply_font(g_hwndRadioLow);
+
+        g_hwndRadioMed = CreateWindowExW(0, L"BUTTON", L"中 (256px)",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            190, gy, 100, 22, g_hwndPlayGroup, (HMENU)(UINT_PTR)IDC_RADIO_MED, inst, nullptr);
+        apply_font(g_hwndRadioMed);
+
+        g_hwndRadioHigh = CreateWindowExW(0, L"BUTTON", L"高 (512px)",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            296, gy, 100, 22, g_hwndPlayGroup, (HMENU)(UINT_PTR)IDC_RADIO_HIGH, inst, nullptr);
+        apply_font(g_hwndRadioHigh);
+        SendMessageW(g_hwndRadioHigh, BM_SETCHECK, BST_CHECKED, 0);  // 默认"高"
+
+        gy += 24;
+        g_hwndRadioCustom = CreateWindowExW(0, L"BUTTON", L"其他 (自定义 .bin 文件)",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            84, gy, 200, 22, g_hwndPlayGroup, (HMENU)(UINT_PTR)IDC_RADIO_CUSTOM, inst, nullptr);
+        apply_font(g_hwndRadioCustom);
 
         // ── Preprocess 组 ──
         g_hwndPreGroup = CreateWindowExW(0, L"STATIC", nullptr,
             WS_CHILD | WS_CLIPCHILDREN,
-            0, y, 480, 300, hwnd, nullptr, inst, nullptr);
+            0, y, 480, 380, hwnd, nullptr, inst, nullptr);
+        SetWindowSubclass(g_hwndPreGroup, group_fwd_proc, 0, 0);
 
         gy = 8;
+        // 预填充输入视频（嵌入资源模式）
+        const wchar_t* def_input = nullptr;
+        std::wstring input_buf;
+        if (!g_res_dir.empty()) {
+            input_buf = g_res_dir + L"bad_apple.mp4";
+            def_input = input_buf.c_str();
+        }
         gy = create_file_row(g_hwndPreGroup, inst, gy, L"输入视频:", 70,
-                             IDC_EDIT_INPUT, IDC_BTN_INPUT, g_hwndEditInput);
+                             IDC_EDIT_INPUT, IDC_BTN_INPUT, g_hwndEditInput, def_input);
         gy = create_file_row(g_hwndPreGroup, inst, gy, L"输出文件:", 70,
                              IDC_EDIT_OUTPUT, IDC_BTN_OUTPUT, g_hwndEditOutput,
                              L"boxes.bin");
 
         gy += 8;
         int fx2 = 14;
-        fx2 = create_short_field(g_hwndPreGroup, inst, fx2, gy, L"宽度:",
-            IDC_EDIT_WIDTH, g_hwndEditWidth, L"64");
-        fx2 = create_short_field(g_hwndPreGroup, inst, fx2, gy, L"矩形数:",
-            IDC_EDIT_MAXRECTS, g_hwndEditMaxR, L"150");
-        fx2 = create_short_field(g_hwndPreGroup, inst, fx2, gy, L"阈值:",
-            IDC_EDIT_THRESH, g_hwndEditThresh, L"200");
+        fx2 = create_short_field(g_hwndPreGroup, inst, fx2, gy, L"采样宽度:",
+            IDC_EDIT_WIDTH, g_hwndEditWidth, L"64", 90, 50, 150);
+        fx2 = create_short_field(g_hwndPreGroup, inst, fx2, gy, L"最大矩形数:",
+            IDC_EDIT_MAXRECTS, g_hwndEditMaxR, L"150", 90, 50, 150);
+        fx2 = create_short_field(g_hwndPreGroup, inst, fx2, gy, L"白色阈值:",
+            IDC_EDIT_THRESH, g_hwndEditThresh, L"200", 90, 50, 150);
+
+        gy += 32;
+        // 说明文字
+        HWND hHelp = CreateWindowExW(0, L"STATIC",
+            L"说明:\n"
+            L"  · 采样宽度 — 分析时的图像宽度(px)，0=原始分辨率\n"
+            L"  · 最大矩形数 — 每帧最多提取的矩形数量\n"
+            L"  · 白色阈值 — 灰度>=此值视为白色(0-255)",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            14, gy, 440, 60, g_hwndPreGroup, nullptr, inst, nullptr);
+        apply_font(hHelp);
 
         // ── Launch 按钮 ──
         g_hwndLaunch = CreateWindowExW(0, L"BUTTON", L"Launch >>>",
@@ -985,6 +1195,27 @@ static LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg,
                             buf, MAX_PATH, true))
                 set_edit_text(g_hwndEditOutput, buf);
         }
+        else if (id == IDC_RADIO_LOW || id == IDC_RADIO_MED || id == IDC_RADIO_HIGH) {
+            // 嵌入资源模式：禁用浏览按钮，切换 bin 和音频
+            EnableWindow(GetDlgItem(g_hwndPlayGroup, IDC_BTN_BOXES), FALSE);
+            EnableWindow(GetDlgItem(g_hwndPlayGroup, IDC_BTN_AUDIO), FALSE);
+            if (!g_res_dir.empty()) {
+                if (id == IDC_RADIO_LOW)
+                    set_edit_text(g_hwndEditBoxes, (g_res_dir + L"boxes128.bin").c_str());
+                else if (id == IDC_RADIO_MED)
+                    set_edit_text(g_hwndEditBoxes, (g_res_dir + L"boxes256.bin").c_str());
+                else if (id == IDC_RADIO_HIGH)
+                    set_edit_text(g_hwndEditBoxes, (g_res_dir + L"boxes512.bin").c_str());
+                set_edit_text(g_hwndEditAudio, (g_res_dir + L"bad_apple.mp3").c_str());
+            }
+        }
+        else if (id == IDC_RADIO_CUSTOM) {
+            // "其他"模式：启用浏览按钮
+            EnableWindow(GetDlgItem(g_hwndPlayGroup, IDC_BTN_BOXES), TRUE);
+            EnableWindow(GetDlgItem(g_hwndPlayGroup, IDC_BTN_AUDIO), TRUE);
+            set_edit_text(g_hwndEditBoxes, L"");
+            set_edit_text(g_hwndEditAudio, L"");
+        }
         else if (id == IDC_BTN_FULLSCREEN) {
             RECT wa;
             SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
@@ -997,9 +1228,35 @@ static LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg,
             set_edit_text(g_hwndEditSH, buf);
         }
         else if (id == IDC_BTN_LAUNCH && code == BN_CLICKED) {
+            // 运行前免责声明
+            if (!show_disclaimer(L"WhiteRectFitter — 运行确认")) break;
             bool play = (SendMessageW(g_hwndRadioPlay, BM_GETCHECK, 0, 0) == BST_CHECKED);
             if (play) {
-                auto boxes = get_edit_text(g_hwndEditBoxes);
+                // 根据画质选择确定 boxes 路径
+                std::string boxes;
+                if (SendMessageW(g_hwndRadioCustom, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                    // "其他"模式：使用用户选择的文件
+                    boxes = get_edit_text(g_hwndEditBoxes);
+                } else if (!g_res_dir.empty()) {
+                    // 嵌入资源模式：根据画质选择
+                    HINSTANCE inst = (HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE);
+                    if (SendMessageW(g_hwndRadioLow, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                        boxes = wcs_to_mbs((g_res_dir + L"boxes128.bin").c_str());
+                    } else if (SendMessageW(g_hwndRadioMed, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                        boxes = wcs_to_mbs((g_res_dir + L"boxes256.bin").c_str());
+                    } else {
+                        // "高"：按需解压 boxes512
+                        if (!extract_boxes512(inst)) {
+                            MessageBoxW(hwnd, L"无法解压 boxes512.bin", L"WhiteRectFitter",
+                                        MB_OK | MB_ICONERROR);
+                            break;
+                        }
+                        boxes = wcs_to_mbs((g_res_dir + L"boxes512.bin").c_str());
+                    }
+                } else {
+                    // 非嵌入模式：使用用户选择的文件
+                    boxes = get_edit_text(g_hwndEditBoxes);
+                }
                 if (boxes.empty()) {
                     MessageBoxW(hwnd, L"请选择 Boxes 文件", L"WhiteRectFitter",
                                 MB_OK | MB_ICONWARNING);
@@ -1010,7 +1267,7 @@ static LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg,
                 g_gui_result->audio_path = get_edit_wtext(g_hwndEditAudio);
                 g_gui_result->sx = get_edit_int(g_hwndEditSX, 0);
                 g_gui_result->sy = get_edit_int(g_hwndEditSY, 0);
-                g_gui_result->sw = get_edit_int(g_hwndEditSW, 1920);
+                g_gui_result->sw = get_edit_int(g_hwndEditSW, 1440);
                 g_gui_result->sh = get_edit_int(g_hwndEditSH, 1080);
             } else {
 #ifdef WITH_OPENCV
@@ -1064,7 +1321,7 @@ static GuiArgs run_gui(HINSTANCE inst) {
     wc.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassExW(&wc);
 
-    int w = 480, h = 440;
+    int w = 480, h = 520;
     RECT wa;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
     int x = wa.left + (wa.right  - wa.left - w) / 2;
@@ -1096,6 +1353,27 @@ static GuiArgs run_gui(HINSTANCE inst) {
     g_font = g_font_mono = nullptr;
 
     return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// § 6.8  免责声明
+// ═══════════════════════════════════════════════════════════════════
+
+static bool show_disclaimer(const wchar_t* title)
+{
+    int ret = MessageBoxW(nullptr,
+        L"免责声明\n"
+        L"\n"
+        L"本程序会大量占用计算资源（CPU、GPU、内存），\n"
+        L"可能导致系统卡顿、发热或硬件损耗。\n"
+        L"\n"
+        L"运行本程序即表示您了解并接受上述风险。\n"
+        L"作者不对因使用本程序造成的任何损害承担责任。\n"
+        L"\n"
+        L"点击 [是] 继续运行，[否] 退出程序。",
+        title,
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND);
+    return ret == IDYES;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1142,11 +1420,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdline, int)
     // 高 DPI 感知
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+    // 启动免责声明
+    if (!show_disclaimer(L"WhiteRectFitter — 启动确认")) return 0;
+
 #ifndef CONSOLE_BUILD
     attach_console();
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 #endif
+
+    // ── 提取嵌入资源 ──
+    bool embedded = has_embedded_resources(inst);
+    if (embedded) {
+        if (!extract_embedded_data(inst)) {
+            MessageBoxW(nullptr, L"无法提取嵌入资源。",
+                        L"WhiteRectFitter", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+        atexit(cleanup_res_dir);
+    }
 
     if (argc < 2) {
 #ifndef CONSOLE_BUILD
