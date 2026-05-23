@@ -1,5 +1,4 @@
 # ── CMake build artifacts ──────────────────────────────────────────
-build/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
@@ -18,7 +17,6 @@ compile_commands.json
 *.exp
 
 # ── Compiled binaries ─────────────────────────────────────────────
-*.exe
 *.dll
 *.obj
 *.o
