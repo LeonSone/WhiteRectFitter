@@ -49,9 +49,8 @@ dist/
 *.7z
 
 # ── IDE / editor ──────────────────────────────────────────────────
-.vscode/*
-!.vscode/settings.json
-!.vscode/c_cpp_properties.json
+.vscode/
+.claude/
 *.swp
 *.swo
 *~
